@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>미로찾기</title>
+<style>
+  :root {
+    --bg: #f4f1ea;
+    --fg: #2b2b2b;
+    --muted: #7a7469;
+    --wall: #3a3a3a;
+    --player: #e0553c;
+    --skin: #f2c9a0;
+    --goal: #3d9970;
+    --trail: rgba(224, 85, 60, 0.16);
+    --panel: #ffffff;
+    --border: #ddd8cc;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #17171a;
+      --fg: #e8e6e1;
+      --muted: #9a958c;
+      --wall: #6f6a62;
+      --player: #ff7b5f;
+      --skin: #e8bb90;
+      --goal: #4fc08d;
+      --trail: rgba(255, 123, 95, 0.18);
+      --panel: #212125;
+      --border: #34343a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: "Pretendard", -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 24px 16px;
+  }
+  h1 { font-size: 1.4rem; margin: 0; letter-spacing: -0.02em; }
+  .difficulty {
+    display: flex;
+    gap: 6px;
+    padding: 4px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .difficulty button {
+    border: none;
+    background: transparent;
+    padding: 7px 18px;
+    border-radius: 7px;
+    color: var(--muted);
+  }
+  .difficulty button[aria-pressed="true"] {
+    background: var(--player);
+    color: #fff;
+    font-weight: 600;
+  }
+  .stats {
+    display: flex;
+    gap: 20px;
+    font-variant-numeric: tabular-nums;
+    font-size: 0.95rem;
+    color: var(--muted);
+  }
+  .stats b { color: var(--fg); font-weight: 600; }
+  .board {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.07);
+    touch-action: none;
+  }
+  canvas { display: block; max-width: 100%; height: auto; }
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    background: color-mix(in srgb, var(--panel) 88%, transparent);
+    border-radius: 12px;
+    text-align: center;
+  }
+  .overlay.show { display: flex; }
+  .overlay h2 { margin: 0; font-size: 1.25rem; }
+  .overlay p { margin: 0; color: var(--muted); font-size: 0.9rem; }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  button {
+    font: inherit;
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--fg);
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--muted); }
+  button.primary { background: var(--player); border-color: var(--player); color: #fff; }
+  .hint { color: var(--muted); font-size: 0.82rem; text-align: center; }
+  .pad { display: grid; grid-template-columns: repeat(3, 52px); gap: 6px; justify-content: center; }
+  .pad button { padding: 12px 0; }
+  .pad .sp { visibility: hidden; }
+  @media (hover: hover) and (pointer: fine) { .pad { display: none; } }
+</style>
+</head>
+<body>
+  <h1>미로찾기</h1>
+
+  <div class="difficulty" id="difficulty">
+    <button data-diff="easy" aria-pressed="false">쉬움</button>
+    <button data-diff="normal" aria-pressed="true">보통</button>
+    <button data-diff="hard" aria-pressed="false">어려움</button>
+  </div>
+
+  <div class="stats">
+    <span>레벨 <b id="level">1</b></span>
+    <span>이동 <b id="moves">0</b></span>
+    <span>시간 <b id="time">0.0</b>초</span>
+  </div>
+
+  <div class="board">
+    <canvas id="c" width="520" height="520"></canvas>
+    <div class="overlay" id="overlay">
+      <h2 id="ovTitle">도착!</h2>
+      <p id="ovText"></p>
+      <button class="primary" id="ovNext">다음 레벨</button>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button id="again">현재 레벨 다시</button>
+    <button id="reset">처음부터</button>
+  </div>
+
+  <div class="pad">
+    <span class="sp"></span><button data-dir="up">↑</button><span class="sp"></span>
+    <button data-dir="left">←</button><button data-dir="down">↓</button><button data-dir="right">→</button>
+  </div>
+
+  <p class="hint">방향키 또는 WASD로 이동하세요. 초록색 문이 목적지입니다.</p>
+
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const SIZE = 520;
+
+  const els = {
+    level: document.getElementById('level'),
+    moves: document.getElementById('moves'),
+    time: document.getElementById('time'),
+    overlay: document.getElementById('overlay'),
+    ovTitle: document.getElementById('ovTitle'),
+    ovText: document.getElementById('ovText'),
+    ovNext: document.getElementById('ovNext'),
+  };
+
+  // 난이도: 시작 크기, 레벨당 증가폭, 최대 크기, braid(막다른 길을 터서 지름길을 만드는 비율)
+  const DIFFICULTY = {
+    easy:   { base: 6,  step: 1, max: 14, braid: 0.45, label: '쉬움' },
+    normal: { base: 8,  step: 2, max: 22, braid: 0.12, label: '보통' },
+    hard:   { base: 12, step: 2, max: 30, braid: 0,    label: '어려움' },
+  };
+
+  let difficulty = 'normal';
+  let level = 1;
+  let cols, rows, cell, grid, player, moves, startTime, running, visited, timerId;
+
+  // 각 칸의 벽: [위, 오른쪽, 아래, 왼쪽]
+  const DIRS = [
+    { dx: 0, dy: -1, wall: 0, opposite: 2 },
+    { dx: 1, dy: 0, wall: 1, opposite: 3 },
+    { dx: 0, dy: 1, wall: 2, opposite: 0 },
+    { dx: -1, dy: 0, wall: 3, opposite: 1 },
+  ];
+
+  const idx = (x, y) => y * cols + x;
+  const inBounds = (x, y) => x >= 0 && y >= 0 && x < cols && y < rows;
+
+  function sizeForLevel(n) {
+    const d = DIFFICULTY[difficulty];
+    return Math.min(d.base + (n - 1) * d.step, d.max);
+  }
+
+  // 재귀적 백트래킹으로 완전 연결된 미로 생성
+  function generateMaze() {
+    grid = Array.from({ length: cols * rows }, () => ({ walls: [true, true, true, true], seen: false }));
+    const stack = [{ x: 0, y: 0 }];
+    grid[0].seen = true;
+
+    while (stack.length) {
+      const cur = stack[stack.length - 1];
+      const options = DIRS.filter(d => {
+        const nx = cur.x + d.dx, ny = cur.y + d.dy;
+        return inBounds(nx, ny) && !grid[idx(nx, ny)].seen;
+      });
+
+      if (!options.length) { stack.pop(); continue; }
+
+      const d = options[Math.floor(Math.random() * options.length)];
+      const nx = cur.x + d.dx, ny = cur.y + d.dy;
+      grid[idx(cur.x, cur.y)].walls[d.wall] = false;
+      grid[idx(nx, ny)].walls[d.opposite] = false;
+      grid[idx(nx, ny)].seen = true;
+      stack.push({ x: nx, y: ny });
+    }
+
+    braid(DIFFICULTY[difficulty].braid);
+  }
+
+  // 막다른 길의 벽을 일부 터서 갈림길을 줄인다 (= 쉬워진다)
+  function braid(rate) {
+    if (!rate) return;
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < cols; x++) {
+        const cellData = grid[idx(x, y)];
+        const closed = cellData.walls.filter(Boolean).length;
+        if (closed < 3 || Math.random() > rate) continue;
+
+        const openable = DIRS.filter(d =>
+          cellData.walls[d.wall] && inBounds(x + d.dx, y + d.dy)
+        );
+        if (!openable.length) continue;
+
+        const d = openable[Math.floor(Math.random() * openable.length)];
+        cellData.walls[d.wall] = false;
+        grid[idx(x + d.dx, y + d.dy)].walls[d.opposite] = false;
+      }
+    }
+  }
+
+  function startLevel() {
+    cols = rows = sizeForLevel(level);
+    cell = Math.floor(SIZE / cols);
+    canvas.width = canvas.height = cell * cols;
+
+    generateMaze();
+    player = { x: 0, y: 0, facing: 1 };
+    visited = new Set([idx(0, 0)]);
+    moves = 0;
+    running = true;
+    startTime = performance.now();
+
+    els.level.textContent = level;
+    els.moves.textContent = '0';
+    els.overlay.classList.remove('show');
+
+    clearInterval(timerId);
+    timerId = setInterval(updateTimer, 100);
+    draw();
+  }
+
+  function updateTimer() {
+    if (!running) return;
+    els.time.textContent = ((performance.now() - startTime) / 1000).toFixed(1);
+  }
+
+  function css(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+
+  function drawGoal() {
+    const px = (cols - 1) * cell, py = (rows - 1) * cell;
+    const goal = css('--goal');
+
+    ctx.fillStyle = goal;
+    ctx.globalAlpha = 0.18;
+    ctx.fillRect(px, py, cell, cell);
+    ctx.globalAlpha = 1;
+
+    // 아치형 문
+    const w = cell * 0.46, h = cell * 0.58;
+    const x = px + (cell - w) / 2, y = py + cell * 0.7 - h + h * 0.36;
+    ctx.fillStyle = goal;
+    ctx.beginPath();
+    ctx.moveTo(x, y + h);
+    ctx.lineTo(x, y + w / 2);
+    ctx.arc(x + w / 2, y + w / 2, w / 2, Math.PI, 0);
+    ctx.lineTo(x + w, y + h);
+    ctx.closePath();
+    ctx.fill();
+
+    // 손잡이
+    ctx.fillStyle = css('--panel');
+    ctx.beginPath();
+    ctx.arc(x + w * 0.76, y + h * 0.62, Math.max(1.2, cell * 0.035), 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 셀 중앙에 서 있는 사람 (머리 + 몸통 + 팔 + 다리)
+  function drawPerson(cx, cy, s, facing) {
+    const body = css('--player');
+    const skin = css('--skin');
+    const line = Math.max(1.6, s * 0.14);
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(facing, 1);
+    ctx.lineWidth = line;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // 그림자
+    ctx.fillStyle = 'rgba(0,0,0,0.13)';
+    ctx.beginPath();
+    ctx.ellipse(0, s * 0.92, s * 0.5, s * 0.16, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 다리
+    ctx.strokeStyle = body;
+    ctx.beginPath();
+    ctx.moveTo(-s * 0.02, s * 0.28);
+    ctx.lineTo(-s * 0.3, s * 0.84);
+    ctx.moveTo(s * 0.06, s * 0.28);
+    ctx.lineTo(s * 0.34, s * 0.84);
+    ctx.stroke();
+
+    // 팔
+    ctx.beginPath();
+    ctx.moveTo(-s * 0.04, -s * 0.18);
+    ctx.lineTo(-s * 0.46, s * 0.14);
+    ctx.moveTo(s * 0.04, -s * 0.18);
+    ctx.lineTo(s * 0.48, -s * 0.06);
+    ctx.stroke();
+
+    // 몸통
+    ctx.beginPath();
+    ctx.moveTo(0, -s * 0.34);
+    ctx.lineTo(0, s * 0.3);
+    ctx.stroke();
+
+    // 머리
+    ctx.fillStyle = skin;
+    ctx.beginPath();
+    ctx.arc(0, -s * 0.62, s * 0.32, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = body;
+    ctx.lineWidth = Math.max(1, s * 0.09);
+    ctx.stroke();
+
+    // 눈
+    ctx.fillStyle = css('--wall');
+    ctx.beginPath();
+    ctx.arc(s * 0.12, -s * 0.66, Math.max(0.9, s * 0.06), 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  function draw() {
+    const w = canvas.width;
+    ctx.clearRect(0, 0, w, w);
+
+    // 지나온 길
+    ctx.fillStyle = css('--trail');
+    visited.forEach(i => {
+      const x = i % cols, y = Math.floor(i / cols);
+      ctx.fillRect(x * cell, y * cell, cell, cell);
+    });
+
+    drawGoal();
+
+    // 벽
+    ctx.strokeStyle = css('--wall');
+    ctx.lineWidth = Math.max(2, cell * 0.09);
+    ctx.lineCap = 'square';
+    ctx.beginPath();
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < cols; x++) {
+        const { walls } = grid[idx(x, y)];
+        const px = x * cell, py = y * cell;
+        if (walls[0]) { ctx.moveTo(px, py); ctx.lineTo(px + cell, py); }
+        if (walls[1]) { ctx.moveTo(px + cell, py); ctx.lineTo(px + cell, py + cell); }
+        if (walls[2]) { ctx.moveTo(px, py + cell); ctx.lineTo(px + cell, py + cell); }
+        if (walls[3]) { ctx.moveTo(px, py); ctx.lineTo(px, py + cell); }
+      }
+    }
+    ctx.stroke();
+
+    drawPerson(
+      player.x * cell + cell / 2,
+      player.y * cell + cell / 2,
+      cell * 0.3,
+      player.facing
+    );
+  }
+
+  function move(dirIndex) {
+    if (!running) return;
+    const d = DIRS[dirIndex];
+    if (d.dx) player.facing = d.dx > 0 ? 1 : -1;
+    if (grid[idx(player.x, player.y)].walls[d.wall]) { draw(); return; }
+
+    player.x += d.dx;
+    player.y += d.dy;
+    moves++;
+    visited.add(idx(player.x, player.y));
+    els.moves.textContent = moves;
+    draw();
+
+    if (player.x === cols - 1 && player.y === rows - 1) finish();
+  }
+
+  function finish() {
+    running = false;
+    clearInterval(timerId);
+    const secs = ((performance.now() - startTime) / 1000).toFixed(1);
+    els.time.textContent = secs;
+    els.ovTitle.textContent = '도착!';
+    els.ovText.textContent =
+      `${DIFFICULTY[difficulty].label} · 레벨 ${level} 완료 · ${moves}번 이동 · ${secs}초`;
+    els.overlay.classList.add('show');
+  }
+
+  const KEYS = {
+    ArrowUp: 0, ArrowRight: 1, ArrowDown: 2, ArrowLeft: 3,
+    w: 0, d: 1, s: 2, a: 3, W: 0, D: 1, S: 2, A: 3,
+  };
+
+  document.addEventListener('keydown', e => {
+    const dir = KEYS[e.key];
+    if (dir === undefined) return;
+    e.preventDefault();
+    move(dir);
+  });
+
+  const PAD = { up: 0, right: 1, down: 2, left: 3 };
+  document.querySelectorAll('.pad button').forEach(btn => {
+    btn.addEventListener('click', () => move(PAD[btn.dataset.dir]));
+  });
+
+  // 스와이프
+  let touchStart = null;
+  canvas.addEventListener('touchstart', e => {
+    touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  }, { passive: true });
+  canvas.addEventListener('touchend', e => {
+    if (!touchStart) return;
+    const dx = e.changedTouches[0].clientX - touchStart.x;
+    const dy = e.changedTouches[0].clientY - touchStart.y;
+    touchStart = null;
+    if (Math.hypot(dx, dy) < 24) return;
+    if (Math.abs(dx) > Math.abs(dy)) move(dx > 0 ? 1 : 3);
+    else move(dy > 0 ? 2 : 0);
+  }, { passive: true });
+
+  document.querySelectorAll('#difficulty button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      difficulty = btn.dataset.diff;
+      document.querySelectorAll('#difficulty button').forEach(b =>
+        b.setAttribute('aria-pressed', String(b === btn))
+      );
+      level = 1;
+      startLevel();
+    });
+  });
+
+  els.ovNext.addEventListener('click', () => { level++; startLevel(); });
+  document.getElementById('again').addEventListener('click', startLevel);
+  document.getElementById('reset').addEventListener('click', () => { level = 1; startLevel(); });
+
+  startLevel();
+})();
+</script>
+</body>
+</html>
