@@ -1,6 +1,10 @@
 # 미로찾기 (Maze)
 
-의존성 없는 단일 HTML 파일 미로찾기 게임. `maze.html`을 브라우저로 열면 바로 실행됩니다.
+의존성 없는 단일 HTML 파일 미로찾기 게임.
+
+**▶ [바로 플레이하기](https://gdrpaul3-byte.github.io/maze_wecruit/)**
+
+`index.html`을 내려받아 브라우저로 열어도 그대로 실행됩니다. 빌드나 서버가 필요 없습니다.
 
 ## 플레이
 
