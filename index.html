@@ -167,7 +167,14 @@
   @media (hover: hover) { button:hover { border-color: var(--muted); } }
   button.primary { background: var(--player); border-color: var(--player); color: #fff; }
 
-  .hint { color: var(--muted); font-size: clamp(0.72rem, 3vw, 0.82rem); text-align: center; margin: 0; }
+  .hint {
+    color: var(--muted);
+    font-size: clamp(0.72rem, 3vw, 0.82rem);
+    text-align: center;
+    margin: 0;
+    word-break: keep-all;   /* 한국어 단어가 중간에서 잘리지 않게 */
+    line-height: 1.5;
+  }
   .hint .touch { display: none; }
 
   .pad {
